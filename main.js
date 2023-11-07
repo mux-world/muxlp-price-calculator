@@ -35,10 +35,12 @@ async function getAssetPrices() {
 async function getMultiChainLiquidity(assetPrices) {
   const multiChainLiquidity = {}
   let muxlpTotalSupply = new BigNumber(PreMinedTokenTotalSupply)
+  let stableDeduct = new BigNumber(PreMinedTokenTotalSupply)
   for (const providerConfig of providerConfigs) {
     const provider = new ethers.providers.StaticJsonRpcProvider(providerConfig.url, providerConfig.chainId)
-    const singleChainLpDeduct = await getSingleChainLiquidity(provider, multiChainLiquidity)
+    const { singleChainLpDeduct, singleChainStableDeduct } = await getSingleChainLiquidity(provider, multiChainLiquidity)
     muxlpTotalSupply = muxlpTotalSupply.minus(singleChainLpDeduct)
+    stableDeduct = stableDeduct.minus(singleChainStableDeduct)
   }
 
   let aum = new BigNumber(0)
@@ -53,8 +55,9 @@ async function getMultiChainLiquidity(assetPrices) {
     }
     const longUpnl = liquidity.totalLongPosition.times(price).minus(liquidity.longEntryValue)
     const shortUpnl = liquidity.shortEntryValue.minus(liquidity.totalShortPosition.times(price))
-    aum = multiChainLiquidity[symbol].lpBalance.times(price).minus(longUpnl).minus(shortUpnl).plus(aum)
+    aum = liquidity.lpBalance.plus(liquidity.credit).times(price).minus(longUpnl).minus(shortUpnl).plus(aum)
   }
+  aum = aum.minus(stableDeduct)
 
   return {
     aum,
@@ -74,6 +77,7 @@ function getEmptyAsset() {
   }
 }
 
+// return { singleChainLpDeduct, singleChainStableDeduct }
 async function getSingleChainLiquidity(provider, multiChainLiquidity) {
   const reader = await getReaderContract(provider)
   const state = await getChainStorage(reader)
@@ -108,7 +112,10 @@ async function getSingleChainLiquidity(provider, multiChainLiquidity) {
     })
   }
 
-  return state.lpDeduct
+  return {
+    singleChainLpDeduct: state.lpDeduct,
+    singleChainStableDeduct: state.stableDeduct,
+  }
 }
 
 main()
